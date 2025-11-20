@@ -11,6 +11,16 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
+var EvaluationFields = [...]string{
+	"Symbol",
+	"StockPrice",
+	"NumberOfShares",
+	"MarketCapitalization",
+	"MinusCashAndCashEquivalents",
+	"AddTotalDebt",
+	"EnterpriseValue",
+}
+
 type Evaluations struct {
 	Symbol                      string  `json:"symbol"`
 	Date                        string  `json:"date"`
@@ -25,9 +35,11 @@ type Evaluations struct {
 func main() {
 	args := os.Args[1:]
 	var symbolEvaluations []Evaluations
+	// fmt.Println(string(1) + "1")
+	// os.Exit(1)
 	for _, arg := range args {
 
-		url := fmt.Sprintf("https://financialmodelingprep.com/stable/enterprise-values?symbol=%s&apikey=%s&limit=1", arg, "apiKey")
+		url := fmt.Sprintf("https://financialmodelingprep.com/stable/enterprise-values?symbol=%s&apikey=%s&limit=1", arg, "")
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			fmt.Printf("client: could not create request: %s\n", err)
@@ -70,15 +82,32 @@ func createExcelIfNotExists(symbolEvaluations []Evaluations) {
 		fmt.Printf("file already exists : %s\n, error: %s\n", filename, err)
 	}
 	f := excelize.NewFile()
-	sheetIndex, _ := f.NewSheet(sheetName)
-	i := 1
-	for _, evaluation := range symbolEvaluations {
 
+	sheetIndex, _ := f.NewSheet(sheetName)
+	// headerIndex := 1;
+	for i := range EvaluationFields {
+		cell := string('A' + i) + "1"
+		f.SetCellValue(sheetName, cell, EvaluationFields[i])
+	}
+
+	i := 2;
+	for _, evaluation := range symbolEvaluations {
 		cell := fmt.Sprintf("A%v", i)
 		fmt.Println(cell, evaluation.Symbol)
 		f.SetCellValue(sheetName, cell, evaluation.Symbol)
 		cell = fmt.Sprintf("B%v", i)
 		f.SetCellValue(sheetName, cell, evaluation.StockPrice)
+		cell = fmt.Sprintf("C%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.NumberOfShares)
+		cell = fmt.Sprintf("D%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.MarketCapitalization)
+		cell = fmt.Sprintf("E%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.MinusCashAndCashEquivalents)
+		cell = fmt.Sprintf("F%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.AddTotalDebt)
+		cell = fmt.Sprintf("G%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.EnterpriseValue)
+
 		i++
 	}
 	f.SetActiveSheet(sheetIndex)
@@ -86,3 +115,4 @@ func createExcelIfNotExists(symbolEvaluations []Evaluations) {
 		fmt.Println(err)
 	}
 }
+
