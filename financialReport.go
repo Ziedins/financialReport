@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,10 +15,13 @@ import (
 var EvaluationFields = [...]string{
 	"Symbol",
 	"StockPrice",
+	"Previous Years StockPrice",
 	"NumberOfShares",
 	"NetIncome",
 	"Eps",
+	"Previous Years Eps",
 	"P/E ratio",
+	"Previous years P/E ratio",
 }
 
 var (
@@ -76,6 +78,8 @@ type Evaluations struct {
 	EpsDiluted                              float64 `json:"epsDiluted"`
 	WeightedAverageShsOut                   int64   `json:"weightedAverageShsOut"`
 	WeightedAverageShsOutDil                int64   `json:"weightedAverageShsOutDil"`
+	PreviousYearEps                         float64
+	PreviousYearStockPrice                  float64
 }
 
 func main() {
@@ -85,59 +89,58 @@ func main() {
 	var symbolEvaluations []Evaluations
 
 	for _, symbol := range args {
-		var evaluation Evaluations
+		var latestEvaluation Evaluations
+		var evaluationsByPeriod []Evaluations
 
-		fetchEvaluationData(&evaluation, symbol, enterpriseValuesMethod, *apiKey)
-		fetchEvaluationData(&evaluation, symbol, incomeSatementMethod, *apiKey)
-
-		if evaluation.Symbol == "" {
-			fmt.Printf("client: financials not found for : %s\n", symbol)
-		} else {
-			fmt.Printf("Financials gathered for : %s\n", symbol)
-			symbolEvaluations = append(symbolEvaluations, evaluation)
+		if err := fetchEvaluationData(&evaluationsByPeriod, symbol, enterpriseValuesMethod, *apiKey); err != nil {
+			fmt.Printf("Financials not found for : %s\n err: %s\n", symbol, err)
+			continue
+		}
+		if err := fetchEvaluationData(&evaluationsByPeriod, symbol, incomeSatementMethod, *apiKey); err != nil {
+			fmt.Printf("Financials not found for : %s\n err: %s\n", symbol, err)
+			continue
 		}
 
+		latestEvaluation = evaluationsByPeriod[0]
+
+		fmt.Printf("Financials gathered for : %s\n", symbol)
+		latestEvaluation.PreviousYearStockPrice = evaluationsByPeriod[1].StockPrice
+		latestEvaluation.PreviousYearEps = evaluationsByPeriod[1].Eps
+		symbolEvaluations = append(symbolEvaluations, latestEvaluation)
 	}
 	createExcelIfNotExists(symbolEvaluations)
 	fmt.Printf("Data stored in excel : %s\n", resultFileName)
 }
 
-func fetchEvaluationData(evaluation *Evaluations, symbol string, method string, apiKey string) {
-	url := fmt.Sprintf(financialsUrlBase+method+"?symbol=%s&apikey=%s&limit=1", symbol, apiKey)
+func fetchEvaluationData(evaluationsByPeriod *[]Evaluations, symbol string, method string, apiKey string) error {
+	url := fmt.Sprintf(financialsUrlBase+method+"?symbol=%s&apikey=%s&limit=2", symbol, apiKey)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		fmt.Printf("client: could not create request: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("client: could not create request: %s\n", err)
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Printf("client: error making http request: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("client: error making http request: %s\n", err)
 	}
 	fmt.Printf("client: got response!\n")
 	fmt.Printf("client: status code: %d\n", res.StatusCode)
 	if res.StatusCode == 200 {
 		resBody, err := io.ReadAll(res.Body)
 		if err != nil {
-			fmt.Printf("client: could not read response body: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("client: could not read response body: %s\n", err)
 		}
-		addDataToEvaluation(evaluation, resBody)
+		if err := json.Unmarshal(resBody, &evaluationsByPeriod); err != nil {
+			return fmt.Errorf("client: could not parse response %s\n", err)
+		}
+	} else {
+		return fmt.Errorf("client: service returned responseCode: %v\n", res.StatusCode)
 	}
-}
 
-func addDataToEvaluation(evaluation *Evaluations, data []uint8) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.Token()
-	if err := dec.Decode(&evaluation); err != nil {
-		fmt.Printf("client: could not parse respone: %s\n", err)
-		os.Exit(1)
-	}
+	return nil
 }
 
 func createExcelIfNotExists(symbolEvaluations []Evaluations) {
-	now := time.Now()
-	sheetName := now.Format("January2006")
+	sheetName := symbolEvaluations[0].Date
 	_, err := os.Stat(resultFileName)
 	if err == nil {
 		fmt.Printf("client: file already exists : %s\n", resultFileName)
@@ -157,14 +160,19 @@ func createExcelIfNotExists(symbolEvaluations []Evaluations) {
 		cell = fmt.Sprintf("B%v", i)
 		f.SetCellValue(sheetName, cell, evaluation.StockPrice)
 		cell = fmt.Sprintf("C%v", i)
-		f.SetCellValue(sheetName, cell, evaluation.NumberOfShares)
+		f.SetCellValue(sheetName, cell, evaluation.PreviousYearStockPrice)
 		cell = fmt.Sprintf("D%v", i)
-		f.SetCellValue(sheetName, cell, evaluation.NetIncome)
+		f.SetCellValue(sheetName, cell, evaluation.NumberOfShares)
 		cell = fmt.Sprintf("E%v", i)
-		f.SetCellValue(sheetName, cell, evaluation.Eps)
+		f.SetCellValue(sheetName, cell, evaluation.NetIncome)
 		cell = fmt.Sprintf("F%v", i)
-		profitEarningsRatio := evaluation.StockPrice / evaluation.Eps
-		f.SetCellValue(sheetName, cell, profitEarningsRatio)
+		f.SetCellValue(sheetName, cell, evaluation.Eps)
+		cell = fmt.Sprintf("G%v", i)
+		f.SetCellValue(sheetName, cell, evaluation.PreviousYearEps)
+		cell = fmt.Sprintf("H%v", i)
+		f.SetCellFormula(sheetName, cell, fmt.Sprintf("B%v/F%v", i, i))
+		cell = fmt.Sprintf("I%v", i)
+		f.SetCellFormula(sheetName, cell, fmt.Sprintf("C%v/G%v", i, i))
 		i++
 	}
 	f.SetActiveSheet(sheetIndex)
