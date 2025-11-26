@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -175,6 +174,36 @@ func createExcelIfNotExists(symbolEvaluations []Evaluations) {
 		f.SetCellFormula(sheetName, cell, fmt.Sprintf("C%v/G%v", i, i))
 		i++
 	}
+
+	format1, _ := f.NewConditionalStyle(
+		&excelize.Style{
+			Font: &excelize.Font{Color: "#db4646"},
+			Fill: excelize.Fill{
+				Type: "pattern", Color: []string{"FEC7CE"}, Pattern: 1,
+			},
+		},
+	)
+	format2, _ := f.NewConditionalStyle(
+		&excelize.Style{
+			Font: &excelize.Font{Color: "#84db46"},
+		},
+	)
+	f.SetConditionalFormat(sheetName, "H2:H100",
+		[]excelize.ConditionalFormatOptions{
+			{
+				Type:     "cell",
+				Criteria: ">",
+				Format: &format1,
+				Value:    "$I2",
+			},
+			{
+				Type:     "cell",
+				Criteria: "<=",
+				Format: &format2,
+				Value:    "$I2",
+			},
+		},
+	)
 	f.SetActiveSheet(sheetIndex)
 	if err := f.SaveAs(resultFileName); err != nil {
 		fmt.Println(err)
